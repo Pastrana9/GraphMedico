@@ -1,68 +1,118 @@
 import { Collection, ObjectId } from "mongodb";
+import { ContactModel } from "./type.ts";
+import { getDatetime, validatePhoneNumber } from "./utils.ts";  // Eliminar getCountryFromPhone
 import { GraphQLError } from "graphql";
 
 type Context = {
-    PatientsCollection: Collection<any>;
-    AppointmentsCollection: Collection<any>;
-};
+    ContactCollection: Collection<ContactModel>
+}
+
+type MutationArgs = {
+    name: string, 
+    phone: string
+}
 
 export const resolvers = {
+    Contact: {
+        id: (parent: ContactModel) => parent._id!.toString(),
+        // deno-lint-ignore no-unused-vars
+        datetime: (parent: ContactModel) => getDatetime() // Ajustamos getDatetime sin el parámetro de país
+    },
+
     Query: {
-        getPatients: async (_: unknown, __: unknown, context: Context) => {
-            return await context.PatientsCollection.find().toArray();
-        },
+        getContacts: async(
+            _: unknown,
+            __: unknown,
+            context: Context
+        ): Promise<ContactModel[]> => await context.ContactCollection.find().toArray(),
 
-        getPatient: async (_: unknown, { id }: { id: string }, context: Context) => {
-            const patient = await context.PatientsCollection.findOne({ _id: new ObjectId(id) });
-            if (!patient) throw new GraphQLError("Paciente no encontrado");
-
-            const appointments = await context.AppointmentsCollection.find({ patientId: id }).toArray();
-            return { ...patient, appointments };
-        },
-
-        getAppointments: async (_: unknown, __: unknown, context: Context) => {
-            return await context.AppointmentsCollection.find().toArray();
-        },
+        getContact: async(
+            _: unknown,
+            { id }: { id: string },
+            context: Context
+        ): Promise<ContactModel | null> => {
+            const contact = await context.ContactCollection.findOne({ _id: new ObjectId(id) });
+            if (!contact) throw new GraphQLError("Contacto no encontrado");
+            return contact;
+        }
     },
 
     Mutation: {
-        addPatient: async (_: unknown, { name, phone, email }: { name: string; phone: string; email: string }, context: Context) => {
-            // Validar que no haya un paciente con el mismo teléfono o correo
-            const existingPatient = await context.PatientsCollection.findOne({ $or: [{ phone }, { email }] });
-            if (existingPatient) throw new GraphQLError("El paciente ya existe con ese teléfono o correo");
+        addContact: async(
+            _: unknown,
+            args: MutationArgs,
+            context: Context
+        ): Promise<ContactModel> => {
+            const { name, phone } = args;
 
-            const { insertedId } = await context.PatientsCollection.insertOne({ name, phone, email });
-            return { id: insertedId.toString(), name, phone, email, appointments: [] };
+            // Validar el número de teléfono
+            const isValid = await validatePhoneNumber(phone);
+            if (!isValid) throw new GraphQLError("Número de teléfono no válido");
+
+            // Verificar si el teléfono ya existe
+            const existingContact = await context.ContactCollection.findOne({ phone });
+            if (existingContact) throw new GraphQLError("El número de teléfono ya está registrado");
+
+            // Asignar un valor por defecto o nulo a country si no quieres usarlo
+            const country = "Desconocido"; // O puedes poner `null` si prefieres dejarlo vacío
+
+            const { insertedId } = await context.ContactCollection.insertOne({
+                name,
+                phone,
+                country, // No hace falta obtener el país desde la API externa
+            });
+
+            return {
+                _id: insertedId,
+                name,
+                phone,
+                country,
+            };
         },
 
-        updatePatient: async (_: unknown, { id, name, phone, email }: { id: string; name?: string; phone?: string; email?: string }, context: Context) => {
-            const updateData: any = {};
+        updateContact: async(
+            _: unknown,
+            { id, name, phone }: { id: string, name?: string, phone?: string },
+            context: Context
+        ): Promise<ContactModel> => {
+            const updateData: Partial<ContactModel> = {};
             if (name) updateData.name = name;
-            if (phone) updateData.phone = phone;
-            if (email) updateData.email = email;
+            if (phone) {
+                // Validar el nuevo número de teléfono
+                const isValid = await validatePhoneNumber(phone);
+                if (!isValid) throw new GraphQLError("Número de teléfono no válido");
 
-            await context.PatientsCollection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
-            return await context.PatientsCollection.findOne({ _id: new ObjectId(id) });
+                // Verificar si el teléfono ya está en uso
+                const existingContact = await context.ContactCollection.findOne({ phone });
+                if (existingContact) throw new GraphQLError("El número de teléfono ya está registrado");
+
+                updateData.phone = phone;
+                // Asignamos un valor por defecto a country en lugar de llamar a la API
+                updateData.country = "Desconocido"; // O también `null` si lo prefieres
+            }
+
+            const result = await context.ContactCollection.findOneAndUpdate(
+                { _id: new ObjectId(id) },
+                { $set: updateData },
+                { returnDocument: "after" }
+            );
+
+            if (!result) throw new GraphQLError("El contacto no existe o no se pudo actualizar");
+
+            // Retornar el documento actualizado
+            const updatedContact = await context.ContactCollection.findOne({ _id: new ObjectId(id) });
+            if (!updatedContact) throw new GraphQLError("Error al recuperar el contacto actualizado");
+
+            return updatedContact;
         },
 
-        addAppointment: async (_: unknown, { patientId, date, type }: { patientId: string; date: string; type: string }, context: Context) => {
-            const patient = await context.PatientsCollection.findOne({ _id: new ObjectId(patientId) });
-            if (!patient) throw new GraphQLError("Paciente no encontrado");
-
-            const { insertedId } = await context.AppointmentsCollection.insertOne({ patientId, date, type });
-            return { id: insertedId.toString(), patient, date, type };
-        },
-
-        deleteAppointment: async (_: unknown, { id }: { id: string }, context: Context) => {
-            const result = await context.AppointmentsCollection.deleteOne({ _id: new ObjectId(id) });
+        deleteContact: async(
+            _: unknown,
+            { id }: { id: string },
+            context: Context
+        ): Promise<boolean> => {
+            const result = await context.ContactCollection.deleteOne({ _id: new ObjectId(id) });
             return result.deletedCount > 0;
-        },
-    },
-
-    Appointment: {
-        patient: async (parent: { patientId: string }, _: unknown, context: Context) => {
-            return await context.PatientsCollection.findOne({ _id: new ObjectId(parent.patientId) });
-        },
-    },
+        }
+    }
 };
-

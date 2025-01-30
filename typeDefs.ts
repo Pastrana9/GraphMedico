@@ -1,29 +1,20 @@
 export const typeDefs = `#graphql
-    type Patient {
+    type Contact {
         id: ID!
         name: String!
         phone: String!
-        email: String!
-        appointments: [Appointment]!
-    }
-
-    type Appointment {
-        id: ID!
-        patient: Patient!
-        date: String!
-        type: String!
+        country: String!
+        datetime: String!
     }
 
     type Query {
-        getPatients: [Patient!]!    # 🔹 Devuelve la lista de pacientes
-        getPatient(id: ID!): Patient
-        getAppointments: [Appointment!]!
+        getContacts: [Contact!]!
+        getContact(id: String!): Contact
     }
 
     type Mutation {
-        addPatient(name: String!, phone: String!, email: String!): Patient!
-        updatePatient(id: ID!, name: String, phone: String, email: String): Patient!
-        addAppointment(patientId: ID!, date: String!, type: String!): Appointment!
-        deleteAppointment(id: ID!): Boolean!
+        addContact(name: String!, phone: String!): Contact!
+        updateContact(id: String!, name: String, phone: String): Contact!
+        deleteContact(id: String!): Boolean!
     }
 `;
