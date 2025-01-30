@@ -1,30 +1,49 @@
-import { MongoClient } from "mongodb";
-import { ApolloServer } from "@apollo/server";
-import { startStandaloneServer } from "@apollo/server/standalone";
-import { GraphQLError } from "graphql";
+import { MongoClient } from 'mongodb'
+import { ApolloServer } from '@apollo/server'
+import { startStandaloneServer } from '@apollo/server/standalone'
+import { GraphQLError } from "graphql"
+import { ContactModel } from "./type.ts";
 import { typeDefs } from "./typeDefs.ts";
 import { resolvers } from "./resolvers.ts";
 
-const MONGO_URL = Deno.env.get("MONGO_URL");
-if (!MONGO_URL) throw new GraphQLError("Error en la conexión a MongoDB");
+// Obtener las variables de entorno
+const MONGO_URL = Deno.env.get("MONGO_URL")
+const API_KEY = Deno.env.get("API_KEY")
 
-const client = new MongoClient(MONGO_URL);
-await client.connect();
-console.log("✅ Conectado a la base de datos");
+// Verificar si las variables de entorno están configuradas correctamente
+console.log("Mongo URL:", MONGO_URL)  // Verifica que el URL de Mongo esté correcto
+console.log("API Key:", API_KEY)      // Verifica que la API Key esté correcta
 
-const db = client.db("MedicalClinic");
-const PatientsCollection = db.collection("patients");
-const AppointmentsCollection = db.collection("appointments");
+// Comprobar que MONGO_URL está presente
+if (!MONGO_URL) {
+  throw new GraphQLError("Error en mongo url")
+}
 
-const server = new ApolloServer({
-  typeDefs,
-  resolvers,
-});
+// Comprobar que API_KEY está presente
+if (!API_KEY) {
+  throw new GraphQLError("Error en API_KEY")
+}
 
+// Conectar a MongoDB
+const client = new MongoClient(MONGO_URL)
+
+await client.connect()
+
+console.log("Conectado a la base de datos")
+
+const db = client.db("Agenda")
+
+const ContactCollection = db.collection<ContactModel>("contacts")
+
+// Crear servidor Apollo
+const server = new ApolloServer({ typeDefs, resolvers })
+
+// Iniciar el servidor Apollo
 const { url } = await startStandaloneServer(server, {
-  context: async () => ({ PatientsCollection, AppointmentsCollection }),
-  listen: { port: 4000 },
-});
+  // deno-lint-ignore require-await
+  context: async () => ({ ContactCollection })
+})
 
-console.log(`🚀 Servidor GraphQL corriendo en: ${url}`);
+console.log(`Server ready at: ${url}`);
+
 
